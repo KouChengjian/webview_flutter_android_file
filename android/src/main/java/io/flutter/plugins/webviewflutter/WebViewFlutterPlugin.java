@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.view.View;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import io.flutter.plugin.common.PluginRegistry;
 import io.flutter.app.FlutterApplication;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
@@ -36,7 +37,7 @@ import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewHostApi;
  *
  * <p>Call {@link #registerWith} to use the stable {@code io.flutter.plugin.common} package instead.
  */
-public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
+public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
   public static Activity activity;
 
   private InstanceManager instanceManager;
