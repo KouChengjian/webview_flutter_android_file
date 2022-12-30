@@ -112,12 +112,6 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, Plugi
     JavaObjectHostApi.setup(binaryMessenger, new JavaObjectHostApiImpl(instanceManager));
     WebViewHostApi.setup(binaryMessenger, webViewHostApi);
     JavaScriptChannelHostApi.setup(binaryMessenger, javaScriptChannelHostApi);
-    if (context instanceof FlutterApplication) {
-      Activity currentActivity = ((FlutterApplication) context).getCurrentActivity();
-      if (currentActivity != null) {
-        activity = currentActivity;
-      }
-    }
 
     WebViewClientHostApi.setup(
         binaryMessenger,
@@ -170,6 +164,8 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, Plugi
 
   @Override
   public void onAttachedToActivity(@NonNull ActivityPluginBinding activityPluginBinding) {
+    activity = activityPluginBinding.getActivity();
+    activityPluginBinding.addActivityResultListener(this);
     updateContext(activityPluginBinding.getActivity());
   }
 
@@ -187,6 +183,7 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, Plugi
   @Override
   public void onDetachedFromActivity() {
     updateContext(pluginBinding.getApplicationContext());
+    activity = null;
   }
 
   private void updateContext(Context context) {
