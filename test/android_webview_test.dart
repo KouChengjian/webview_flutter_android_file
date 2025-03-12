@@ -6,18 +6,22 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mockito/annotations.dart';
 import 'package:mockito/mockito.dart';
 import 'package:webview_flutter_android/src/android_webview.dart';
-import 'package:webview_flutter_android/src/android_webview.pigeon.dart';
+import 'package:webview_flutter_android/src/android_webview.g.dart';
 import 'package:webview_flutter_android/src/android_webview_api_impls.dart';
 import 'package:webview_flutter_android/src/instance_manager.dart';
 
 import 'android_webview_test.mocks.dart';
-import 'test_android_webview.pigeon.dart';
+import 'test_android_webview.g.dart';
 
 @GenerateMocks(<Type>[
   CookieManagerHostApi,
   DownloadListener,
   JavaScriptChannel,
+  TestCookieManagerHostApi,
+  TestCustomViewCallbackHostApi,
   TestDownloadListenerHostApi,
+  TestGeolocationPermissionsCallbackHostApi,
+  TestInstanceManagerHostApi,
   TestJavaObjectHostApi,
   TestJavaScriptChannelHostApi,
   TestWebChromeClientHostApi,
@@ -26,12 +30,17 @@ import 'test_android_webview.pigeon.dart';
   TestWebViewClientHostApi,
   TestWebViewHostApi,
   TestAssetManagerHostApi,
+  TestPermissionRequestHostApi,
   WebChromeClient,
   WebView,
   WebViewClient,
 ])
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // Mocks the calls to the native InstanceManager.
+  TestInstanceManagerHostApi.setup(MockTestInstanceManagerHostApi());
+  TestJavaObjectHostApi.setup(MockTestJavaObjectHostApi());
 
   group('Android WebView', () {
     group('JavaObject', () {
@@ -40,10 +49,6 @@ void main() {
       setUp(() {
         mockPlatformHostApi = MockTestJavaObjectHostApi();
         TestJavaObjectHostApi.setup(mockPlatformHostApi);
-      });
-
-      tearDown(() {
-        TestJavaObjectHostApi.setup(null);
       });
 
       test('JavaObject.dispose', () async {
@@ -106,7 +111,7 @@ void main() {
       });
 
       test('create', () {
-        verify(mockPlatformHostApi.create(webViewInstanceId, false));
+        verify(mockPlatformHostApi.create(webViewInstanceId));
       });
 
       test('setWebContentsDebuggingEnabled true', () {
@@ -364,6 +369,24 @@ void main() {
         ));
       });
 
+      test('FlutterAPI create', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        final WebViewFlutterApiImpl api = WebViewFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        const int instanceIdentifier = 0;
+        api.create(instanceIdentifier);
+
+        expect(
+          instanceManager.getInstanceWithWeakReference(instanceIdentifier),
+          isA<WebView>(),
+        );
+      });
+
       test('copy', () {
         expect(webView.copy(), isA<WebView>());
       });
@@ -497,6 +520,21 @@ void main() {
       test('copy', () {
         expect(webSettings.copy(), isA<WebSettings>());
       });
+
+      test('setTextZoom', () {
+        webSettings.setTextZoom(100);
+        verify(mockPlatformHostApi.setTextZoom(
+          webSettingsInstanceId,
+          100,
+        ));
+      });
+
+      test('getUserAgentString', () async {
+        const String userAgent = 'str';
+        when(mockPlatformHostApi.getUserAgentString(webSettingsInstanceId))
+            .thenReturn(userAgent);
+        expect(await webSettings.getUserAgentString(), userAgent);
+      });
     });
 
     group('JavaScriptChannel', () {
@@ -604,6 +642,37 @@ void main() {
         expect(result, <Object>[mockWebView, 'https://www.google.com']);
       });
 
+      test('onReceivedHttpError', () {
+        late final List<Object> result;
+        when(mockWebViewClient.onReceivedHttpError).thenReturn(
+          (
+            WebView webView,
+            WebResourceRequest request,
+            WebResourceResponse response,
+          ) {
+            result = <Object>[webView, request, response];
+          },
+        );
+
+        flutterApi.onReceivedHttpError(
+          mockWebViewClientInstanceId,
+          mockWebViewInstanceId,
+          WebResourceRequestData(
+            url: 'https://www.google.com',
+            isForMainFrame: true,
+            hasGesture: true,
+            method: 'GET',
+            isRedirect: false,
+            requestHeaders: <String?, String?>{},
+          ),
+          WebResourceResponseData(
+            statusCode: 401,
+          ),
+        );
+
+        expect(result, <Object>[mockWebView, isNotNull, isNotNull]);
+      });
+
       test('onReceivedRequestError', () {
         late final List<Object> result;
         when(mockWebViewClient.onReceivedRequestError).thenReturn(
@@ -706,6 +775,33 @@ void main() {
         expect(
           result,
           containsAllInOrder(<Object?>[mockWebView, 'https://www.google.com']),
+        );
+      });
+
+      test('doUpdateVisitedHistory', () {
+        late final List<Object> result;
+        when(mockWebViewClient.doUpdateVisitedHistory).thenReturn(
+          (
+            WebView webView,
+            String url,
+            bool isReload,
+          ) {
+            result = <Object>[webView, url, isReload];
+          },
+        );
+
+        flutterApi.doUpdateVisitedHistory(
+          mockWebViewClientInstanceId,
+          mockWebViewInstanceId,
+          'https://www.google.com',
+          false,
+        );
+
+        expect(
+          result,
+          containsAllInOrder(
+            <Object?>[mockWebView, 'https://www.google.com', false],
+          ),
         );
       });
 
@@ -831,25 +927,538 @@ void main() {
         expect(result, containsAllInOrder(<Object?>[mockWebView, 76]));
       });
 
+      test('onGeolocationPermissionsShowPrompt', () async {
+        const String origin = 'https://www.example.com';
+        final GeolocationPermissionsCallback callback =
+            GeolocationPermissionsCallback.detached();
+        final int paramsId = instanceManager.addDartCreatedInstance(callback);
+        late final GeolocationPermissionsCallback outerCallback;
+        when(mockWebChromeClient.onGeolocationPermissionsShowPrompt).thenReturn(
+          (String origin, GeolocationPermissionsCallback callback) async {
+            outerCallback = callback;
+          },
+        );
+        flutterApi.onGeolocationPermissionsShowPrompt(
+          mockWebChromeClientInstanceId,
+          paramsId,
+          origin,
+        );
+        await expectLater(
+          outerCallback,
+          callback,
+        );
+      });
+
+      test('onShowFileChooser', () async {
+        late final List<Object> result;
+        when(mockWebChromeClient.onShowFileChooser).thenReturn(
+          (WebView webView, FileChooserParams params) {
+            result = <Object>[webView, params];
+            return Future<List<String>>.value(<String>['fileOne', 'fileTwo']);
+          },
+        );
+
+        final FileChooserParams params = FileChooserParams.detached(
+          isCaptureEnabled: false,
+          acceptTypes: <String>[],
+          filenameHint: 'filenameHint',
+          mode: FileChooserMode.open,
+        );
+
+        instanceManager.addHostCreatedInstance(params, 3);
+
+        await expectLater(
+          flutterApi.onShowFileChooser(
+            mockWebChromeClientInstanceId,
+            mockWebViewInstanceId,
+            3,
+          ),
+          completion(<String>['fileOne', 'fileTwo']),
+        );
+        expect(result[0], mockWebView);
+        expect(result[1], params);
+      });
+
+      test('setSynchronousReturnValueForOnShowFileChooser', () {
+        final MockTestWebChromeClientHostApi mockHostApi =
+            MockTestWebChromeClientHostApi();
+        TestWebChromeClientHostApi.setup(mockHostApi);
+
+        WebChromeClient.api =
+            WebChromeClientHostApiImpl(instanceManager: instanceManager);
+
+        final WebChromeClient webChromeClient = WebChromeClient.detached();
+        instanceManager.addHostCreatedInstance(webChromeClient, 2);
+
+        webChromeClient.setSynchronousReturnValueForOnShowFileChooser(false);
+
+        verify(
+          mockHostApi.setSynchronousReturnValueForOnShowFileChooser(2, false),
+        );
+      });
+
+      test(
+          'setSynchronousReturnValueForOnShowFileChooser throws StateError when onShowFileChooser is null',
+          () {
+        final MockTestWebChromeClientHostApi mockHostApi =
+            MockTestWebChromeClientHostApi();
+        TestWebChromeClientHostApi.setup(mockHostApi);
+
+        WebChromeClient.api =
+            WebChromeClientHostApiImpl(instanceManager: instanceManager);
+
+        final WebChromeClient clientWithNullCallback =
+            WebChromeClient.detached();
+        instanceManager.addHostCreatedInstance(clientWithNullCallback, 2);
+
+        expect(
+          () => clientWithNullCallback
+              .setSynchronousReturnValueForOnShowFileChooser(true),
+          throwsStateError,
+        );
+
+        final WebChromeClient clientWithNonnullCallback =
+            WebChromeClient.detached(
+          onShowFileChooser: (_, __) async => <String>[],
+        );
+        instanceManager.addHostCreatedInstance(clientWithNonnullCallback, 3);
+
+        clientWithNonnullCallback
+            .setSynchronousReturnValueForOnShowFileChooser(true);
+
+        verify(
+          mockHostApi.setSynchronousReturnValueForOnShowFileChooser(3, true),
+        );
+      });
+
+      test('onPermissionRequest', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        const int instanceIdentifier = 0;
+        late final List<Object?> callbackParameters;
+        final WebChromeClient instance = WebChromeClient.detached(
+          onPermissionRequest: (
+            WebChromeClient instance,
+            PermissionRequest request,
+          ) {
+            callbackParameters = <Object?>[
+              instance,
+              request,
+            ];
+          },
+          instanceManager: instanceManager,
+        );
+        instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+        final WebChromeClientFlutterApiImpl flutterApi =
+            WebChromeClientFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        final PermissionRequest request = PermissionRequest.detached(
+          resources: <String>[],
+          binaryMessenger: null,
+          instanceManager: instanceManager,
+        );
+        const int requestIdentifier = 32;
+        instanceManager.addHostCreatedInstance(
+          request,
+          requestIdentifier,
+        );
+
+        flutterApi.onPermissionRequest(
+          instanceIdentifier,
+          requestIdentifier,
+        );
+
+        expect(callbackParameters, <Object?>[instance, request]);
+      });
+
+      test('onShowCustomView', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        const int instanceIdentifier = 0;
+        late final List<Object?> callbackParameters;
+        final WebChromeClient instance = WebChromeClient.detached(
+          onShowCustomView: (
+            WebChromeClient instance,
+            View view,
+            CustomViewCallback callback,
+          ) {
+            callbackParameters = <Object?>[
+              instance,
+              view,
+              callback,
+            ];
+          },
+          instanceManager: instanceManager,
+        );
+        instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+        final WebChromeClientFlutterApiImpl flutterApi =
+            WebChromeClientFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        final View view = View.detached(
+          instanceManager: instanceManager,
+        );
+        const int viewIdentifier = 50;
+        instanceManager.addHostCreatedInstance(view, viewIdentifier);
+
+        final CustomViewCallback callback = CustomViewCallback.detached(
+          instanceManager: instanceManager,
+        );
+        const int callbackIdentifier = 51;
+        instanceManager.addHostCreatedInstance(callback, callbackIdentifier);
+
+        flutterApi.onShowCustomView(
+          instanceIdentifier,
+          viewIdentifier,
+          callbackIdentifier,
+        );
+
+        expect(callbackParameters, <Object?>[
+          instance,
+          view,
+          callback,
+        ]);
+      });
+
+      test('onHideCustomView', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        const int instanceIdentifier = 0;
+        late final List<Object?> callbackParameters;
+        final WebChromeClient instance = WebChromeClient.detached(
+          onHideCustomView: (
+            WebChromeClient instance,
+          ) {
+            callbackParameters = <Object?>[
+              instance,
+            ];
+          },
+          instanceManager: instanceManager,
+        );
+        instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+        final WebChromeClientFlutterApiImpl flutterApi =
+            WebChromeClientFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        flutterApi.onHideCustomView(instanceIdentifier);
+
+        expect(callbackParameters, <Object?>[instance]);
+      });
+
+      test('onConsoleMessage', () async {
+        late final List<Object> result;
+        when(mockWebChromeClient.onConsoleMessage).thenReturn(
+          (WebChromeClient instance, ConsoleMessage message) {
+            result = <Object>[instance, message];
+          },
+        );
+
+        final ConsoleMessage message = ConsoleMessage(
+          lineNumber: 0,
+          message: 'message',
+          level: ConsoleMessageLevel.error,
+          sourceId: 'sourceId',
+        );
+
+        flutterApi.onConsoleMessage(
+          mockWebChromeClientInstanceId,
+          message,
+        );
+        expect(result[0], mockWebChromeClient);
+        expect(result[1], message);
+      });
+
+      test('setSynchronousReturnValueForOnConsoleMessage', () {
+        final MockTestWebChromeClientHostApi mockHostApi =
+            MockTestWebChromeClientHostApi();
+        TestWebChromeClientHostApi.setup(mockHostApi);
+
+        WebChromeClient.api =
+            WebChromeClientHostApiImpl(instanceManager: instanceManager);
+
+        final WebChromeClient webChromeClient = WebChromeClient.detached();
+        instanceManager.addHostCreatedInstance(webChromeClient, 2);
+
+        webChromeClient.setSynchronousReturnValueForOnConsoleMessage(false);
+
+        verify(
+          mockHostApi.setSynchronousReturnValueForOnConsoleMessage(2, false),
+        );
+      });
+
+      test(
+          'setSynchronousReturnValueForOnConsoleMessage throws StateError when onConsoleMessage is null',
+          () {
+        final MockTestWebChromeClientHostApi mockHostApi =
+            MockTestWebChromeClientHostApi();
+        TestWebChromeClientHostApi.setup(mockHostApi);
+
+        WebChromeClient.api =
+            WebChromeClientHostApiImpl(instanceManager: instanceManager);
+
+        final WebChromeClient clientWithNullCallback =
+            WebChromeClient.detached();
+        instanceManager.addHostCreatedInstance(clientWithNullCallback, 2);
+
+        expect(
+          () => clientWithNullCallback
+              .setSynchronousReturnValueForOnConsoleMessage(true),
+          throwsStateError,
+        );
+
+        final WebChromeClient clientWithNonnullCallback =
+            WebChromeClient.detached(
+          onConsoleMessage: (_, __) async {},
+        );
+        instanceManager.addHostCreatedInstance(clientWithNonnullCallback, 3);
+
+        clientWithNonnullCallback
+            .setSynchronousReturnValueForOnConsoleMessage(true);
+
+        verify(
+          mockHostApi.setSynchronousReturnValueForOnConsoleMessage(3, true),
+        );
+      });
+
       test('copy', () {
         expect(WebChromeClient.detached().copy(), isA<WebChromeClient>());
+      });
+    });
+
+    test('onGeolocationPermissionsHidePrompt', () {
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      const int instanceIdentifier = 0;
+      late final List<Object?> callbackParameters;
+      final WebChromeClient instance = WebChromeClient.detached(
+        onGeolocationPermissionsHidePrompt: (WebChromeClient instance) {
+          callbackParameters = <Object?>[instance];
+        },
+        instanceManager: instanceManager,
+      );
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      final WebChromeClientFlutterApiImpl flutterApi =
+          WebChromeClientFlutterApiImpl(instanceManager: instanceManager);
+
+      flutterApi.onGeolocationPermissionsHidePrompt(instanceIdentifier);
+
+      expect(callbackParameters, <Object?>[instance]);
+    });
+
+    test('copy', () {
+      expect(WebChromeClient.detached().copy(), isA<WebChromeClient>());
+    });
+  });
+
+  group('FileChooserParams', () {
+    test('FlutterApi create', () {
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final FileChooserParamsFlutterApiImpl flutterApi =
+          FileChooserParamsFlutterApiImpl(
+        instanceManager: instanceManager,
+      );
+
+      flutterApi.create(
+        0,
+        false,
+        const <String>['my', 'list'],
+        FileChooserMode.openMultiple,
+        'filenameHint',
+      );
+
+      final FileChooserParams instance =
+          instanceManager.getInstanceWithWeakReference(0)! as FileChooserParams;
+      expect(instance.isCaptureEnabled, false);
+      expect(instance.acceptTypes, const <String>['my', 'list']);
+      expect(instance.mode, FileChooserMode.openMultiple);
+      expect(instance.filenameHint, 'filenameHint');
+    });
+
+    group('CustomViewCallback', () {
+      tearDown(() {
+        TestCustomViewCallbackHostApi.setup(null);
+      });
+
+      test('onCustomViewHidden', () async {
+        final MockTestCustomViewCallbackHostApi mockApi =
+            MockTestCustomViewCallbackHostApi();
+        TestCustomViewCallbackHostApi.setup(mockApi);
+
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        final CustomViewCallback instance = CustomViewCallback.detached(
+          instanceManager: instanceManager,
+        );
+        const int instanceIdentifier = 0;
+        instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+        await instance.onCustomViewHidden();
+
+        verify(mockApi.onCustomViewHidden(instanceIdentifier));
+      });
+
+      test('FlutterAPI create', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        final CustomViewCallbackFlutterApiImpl api =
+            CustomViewCallbackFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        const int instanceIdentifier = 0;
+
+        api.create(instanceIdentifier);
+
+        expect(
+          instanceManager.getInstanceWithWeakReference(instanceIdentifier),
+          isA<CustomViewCallback>(),
+        );
+      });
+    });
+
+    group('View', () {
+      test('FlutterAPI create', () {
+        final InstanceManager instanceManager = InstanceManager(
+          onWeakReferenceRemoved: (_) {},
+        );
+
+        final ViewFlutterApiImpl api = ViewFlutterApiImpl(
+          instanceManager: instanceManager,
+        );
+
+        const int instanceIdentifier = 0;
+
+        api.create(instanceIdentifier);
+
+        expect(
+          instanceManager.getInstanceWithWeakReference(instanceIdentifier),
+          isA<View>(),
+        );
       });
     });
   });
 
   group('CookieManager', () {
-    test('setCookie calls setCookie on CookieManagerHostApi', () {
-      CookieManager.api = MockCookieManagerHostApi();
-      CookieManager.instance.setCookie('foo', 'bar');
-      verify(CookieManager.api.setCookie('foo', 'bar'));
+    tearDown(() {
+      TestCookieManagerHostApi.setup(null);
     });
 
-    test('clearCookies calls clearCookies on CookieManagerHostApi', () {
-      CookieManager.api = MockCookieManagerHostApi();
-      when(CookieManager.api.clearCookies())
-          .thenAnswer((_) => Future<bool>.value(true));
-      CookieManager.instance.clearCookies();
-      verify(CookieManager.api.clearCookies());
+    test('instance', () {
+      final MockTestCookieManagerHostApi mockApi =
+          MockTestCookieManagerHostApi();
+      TestCookieManagerHostApi.setup(mockApi);
+
+      final CookieManager instance = CookieManager.instance;
+
+      verify(mockApi.attachInstance(
+        JavaObject.globalInstanceManager.getIdentifier(instance),
+      ));
+    });
+
+    test('setCookie', () async {
+      final MockTestCookieManagerHostApi mockApi =
+          MockTestCookieManagerHostApi();
+      TestCookieManagerHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final CookieManager instance = CookieManager.detached(
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      const String url = 'testString';
+      const String value = 'testString2';
+
+      await instance.setCookie(url, value);
+
+      verify(mockApi.setCookie(instanceIdentifier, url, value));
+    });
+
+    test('clearCookies', () async {
+      final MockTestCookieManagerHostApi mockApi =
+          MockTestCookieManagerHostApi();
+      TestCookieManagerHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final CookieManager instance = CookieManager.detached(
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      const bool result = true;
+      when(mockApi.removeAllCookies(
+        instanceIdentifier,
+      )).thenAnswer((_) => Future<bool>.value(result));
+
+      expect(await instance.removeAllCookies(), result);
+
+      verify(mockApi.removeAllCookies(instanceIdentifier));
+    });
+
+    test('setAcceptThirdPartyCookies', () async {
+      final MockTestCookieManagerHostApi mockApi =
+          MockTestCookieManagerHostApi();
+      TestCookieManagerHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final CookieManager instance = CookieManager.detached(
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      final WebView webView = WebView.detached(
+        instanceManager: instanceManager,
+      );
+      const int webViewIdentifier = 4;
+      instanceManager.addHostCreatedInstance(webView, webViewIdentifier);
+
+      const bool accept = true;
+
+      await instance.setAcceptThirdPartyCookies(
+        webView,
+        accept,
+      );
+
+      verify(mockApi.setAcceptThirdPartyCookies(
+        instanceIdentifier,
+        webViewIdentifier,
+        accept,
+      ));
     });
   });
 
@@ -879,6 +1488,137 @@ void main() {
 
     test('copy', () {
       expect(WebStorage.detached().copy(), isA<WebStorage>());
+    });
+  });
+
+  group('PermissionRequest', () {
+    setUp(() {});
+
+    tearDown(() {
+      TestPermissionRequestHostApi.setup(null);
+    });
+
+    test('grant', () async {
+      final MockTestPermissionRequestHostApi mockApi =
+          MockTestPermissionRequestHostApi();
+      TestPermissionRequestHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final PermissionRequest instance = PermissionRequest.detached(
+        resources: <String>[],
+        binaryMessenger: null,
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      const List<String> resources = <String>[PermissionRequest.audioCapture];
+
+      await instance.grant(resources);
+
+      verify(mockApi.grant(
+        instanceIdentifier,
+        resources,
+      ));
+    });
+
+    test('deny', () async {
+      final MockTestPermissionRequestHostApi mockApi =
+          MockTestPermissionRequestHostApi();
+      TestPermissionRequestHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final PermissionRequest instance = PermissionRequest.detached(
+        resources: <String>[],
+        binaryMessenger: null,
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      await instance.deny();
+
+      verify(mockApi.deny(instanceIdentifier));
+    });
+  });
+
+  group('GeolocationPermissionsCallback', () {
+    tearDown(() {
+      TestGeolocationPermissionsCallbackHostApi.setup(null);
+    });
+
+    test('invoke', () async {
+      final MockTestGeolocationPermissionsCallbackHostApi mockApi =
+          MockTestGeolocationPermissionsCallbackHostApi();
+      TestGeolocationPermissionsCallbackHostApi.setup(mockApi);
+
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final GeolocationPermissionsCallback instance =
+          GeolocationPermissionsCallback.detached(
+        instanceManager: instanceManager,
+      );
+      const int instanceIdentifier = 0;
+      instanceManager.addHostCreatedInstance(instance, instanceIdentifier);
+
+      const String origin = 'testString';
+      const bool allow = true;
+      const bool retain = true;
+
+      await instance.invoke(
+        origin,
+        allow,
+        retain,
+      );
+
+      verify(mockApi.invoke(instanceIdentifier, origin, allow, retain));
+    });
+
+    test('Geolocation FlutterAPI create', () {
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final GeolocationPermissionsCallbackFlutterApiImpl api =
+          GeolocationPermissionsCallbackFlutterApiImpl(
+        instanceManager: instanceManager,
+      );
+
+      const int instanceIdentifier = 0;
+      api.create(instanceIdentifier);
+
+      expect(
+        instanceManager.getInstanceWithWeakReference(instanceIdentifier),
+        isA<GeolocationPermissionsCallback>(),
+      );
+    });
+
+    test('FlutterAPI create', () {
+      final InstanceManager instanceManager = InstanceManager(
+        onWeakReferenceRemoved: (_) {},
+      );
+
+      final PermissionRequestFlutterApiImpl api =
+          PermissionRequestFlutterApiImpl(
+        instanceManager: instanceManager,
+      );
+
+      const int instanceIdentifier = 0;
+
+      api.create(instanceIdentifier, <String?>[]);
+
+      expect(
+        instanceManager.getInstanceWithWeakReference(instanceIdentifier),
+        isA<PermissionRequest>(),
+      );
     });
   });
 }
