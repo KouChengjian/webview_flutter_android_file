@@ -21,12 +21,16 @@ public class JavaObjectHostApiImpl implements GeneratedAndroidWebView.JavaObject
    *
    * @param instanceManager maintains instances stored to communicate with Dart objects
    */
-  public JavaObjectHostApiImpl(InstanceManager instanceManager) {
+  public JavaObjectHostApiImpl(@NonNull InstanceManager instanceManager) {
     this.instanceManager = instanceManager;
   }
 
   @Override
   public void dispose(@NonNull Long identifier) {
+    final Object instance = instanceManager.getInstance(identifier);
+    if (instance instanceof WebViewHostApiImpl.WebViewPlatformView) {
+      ((WebViewHostApiImpl.WebViewPlatformView) instance).destroy();
+    }
     instanceManager.remove(identifier);
   }
 }
