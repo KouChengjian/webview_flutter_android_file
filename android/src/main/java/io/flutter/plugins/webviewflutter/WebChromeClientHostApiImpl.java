@@ -41,6 +41,8 @@ import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.annotation.VisibleForTesting;
+
+import io.flutter.Log;
 import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebChromeClientHostApi;
 import java.util.Objects;
 
@@ -108,31 +110,30 @@ public class WebChromeClientHostApiImpl implements WebChromeClientHostApi {
       flutterApi.onGeolocationPermissionsHidePrompt(this, reply -> {});
     }
 
-    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
-    @SuppressWarnings("LambdaLast")
-    @Override
-    public boolean onShowFileChooser(
-        @NonNull WebView webView,
-        @NonNull ValueCallback<Uri[]> filePathCallback,
-        @NonNull FileChooserParams fileChooserParams) {
-      final boolean currentReturnValueForOnShowFileChooser = returnValueForOnShowFileChooser;
-      flutterApi.onShowFileChooser(
-          this,
-          webView,
-          fileChooserParams,
-          reply -> {
-            // The returned list of file paths can only be passed to `filePathCallback` if the
-            // `onShowFileChooser` method returned true.
-            if (currentReturnValueForOnShowFileChooser) {
-              final Uri[] filePaths = new Uri[reply.size()];
-              for (int i = 0; i < reply.size(); i++) {
-                filePaths[i] = Uri.parse(reply.get(i));
-              }
-              filePathCallback.onReceiveValue(filePaths);
-            }
-          });
-      return currentReturnValueForOnShowFileChooser;
-    }
+//    @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
+//    @SuppressWarnings("LambdaLast")
+//    @Override
+//    public boolean onShowFileChooser(@NonNull WebView webView, @NonNull ValueCallback<Uri[]> filePathCallback, @NonNull FileChooserParams fileChooserParams) {
+//      Log.e("onShowFileChooser","zzzzzzzzzzz");
+//      final boolean currentReturnValueForOnShowFileChooser = returnValueForOnShowFileChooser;
+//      flutterApi.onShowFileChooser(
+//          this,
+//          webView,
+//          fileChooserParams,
+//          reply -> {
+//            // The returned list of file paths can only be passed to `filePathCallback` if the
+//            // `onShowFileChooser` method returned true.
+//            if (currentReturnValueForOnShowFileChooser) {
+//              final Uri[] filePaths = new Uri[reply.size()];
+//              for (int i = 0; i < reply.size(); i++) {
+//                filePaths[i] = Uri.parse(reply.get(i));
+//              }
+//              filePathCallback.onReceiveValue(filePaths);
+//            }
+//          }
+//      );
+//      return currentReturnValueForOnShowFileChooser;
+//    }
 
     @RequiresApi(api = Build.VERSION_CODES.LOLLIPOP)
     @Override
@@ -317,6 +318,7 @@ public class WebChromeClientHostApiImpl implements WebChromeClientHostApi {
 
     @Override
     public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
+      Log.e("onShowFileChooser","xxxxxxxxxxxxxxxx");
       if (mUploadMessageArray != null) {
         mUploadMessageArray.onReceiveValue(null);
       }

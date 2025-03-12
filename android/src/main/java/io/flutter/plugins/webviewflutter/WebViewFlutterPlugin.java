@@ -4,6 +4,7 @@
 
 package io.flutter.plugins.webviewflutter;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
 import io.flutter.app.FlutterApplication;
@@ -41,6 +42,7 @@ import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewHostApi;
  */
 public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
 
+  @SuppressLint("StaticFieldLeak")
   public static Activity activity;
 
   @Nullable private InstanceManager instanceManager;
