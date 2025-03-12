@@ -4,6 +4,10 @@
 
 package io.flutter.plugins.webviewflutter;
 
+import android.app.Activity;
+import android.content.Intent;
+import io.flutter.app.FlutterApplication;
+import io.flutter.plugin.common.PluginRegistry;
 import android.content.Context;
 import android.os.Build;
 import android.os.Handler;
@@ -35,13 +39,16 @@ import io.flutter.plugins.webviewflutter.GeneratedAndroidWebView.WebViewHostApi;
  *
  * <p>Register this in an add to app scenario to gracefully handle activity and context changes.
  */
-public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
+public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware, PluginRegistry.ActivityResultListener {
+
+  public static Activity activity;
+
   @Nullable private InstanceManager instanceManager;
 
   private FlutterPluginBinding pluginBinding;
   private WebViewHostApiImpl webViewHostApi;
   private JavaScriptChannelHostApiImpl javaScriptChannelHostApi;
-
+  private WebChromeClientHostApiImpl webChromeClientHostApi;
   /**
    * Add an instance of this to {@link io.flutter.embedding.engine.plugins.PluginRegistry} to
    * register it.
@@ -86,12 +93,15 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
             instanceManager,
             new WebViewClientHostApiImpl.WebViewClientCreator(),
             new WebViewClientFlutterApiImpl(binaryMessenger, instanceManager)));
-    WebChromeClientHostApi.setup(
-        binaryMessenger,
-        new WebChromeClientHostApiImpl(
+
+    // TODO:修改位置 1
+    webChromeClientHostApi = new WebChromeClientHostApiImpl(
             instanceManager,
             new WebChromeClientHostApiImpl.WebChromeClientCreator(),
-            new WebChromeClientFlutterApiImpl(binaryMessenger, instanceManager)));
+            new WebChromeClientFlutterApiImpl(binaryMessenger, instanceManager));
+    WebChromeClientHostApi.setup(binaryMessenger, webChromeClientHostApi);
+    // -----------------------
+
     DownloadListenerHostApi.setup(
         binaryMessenger,
         new DownloadListenerHostApiImpl(
@@ -144,6 +154,8 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
 
   @Override
   public void onAttachedToActivity(@NonNull ActivityPluginBinding activityPluginBinding) {
+    activity = activityPluginBinding.getActivity();
+    activityPluginBinding.addActivityResultListener(this);
     updateContext(activityPluginBinding.getActivity());
   }
 
@@ -160,6 +172,7 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
 
   @Override
   public void onDetachedFromActivity() {
+    activity = null;
     updateContext(pluginBinding.getApplicationContext());
   }
 
@@ -172,5 +185,11 @@ public class WebViewFlutterPlugin implements FlutterPlugin, ActivityAware {
   @Nullable
   public InstanceManager getInstanceManager() {
     return instanceManager;
+  }
+
+
+  @Override
+  public boolean onActivityResult(int requestCode, int resultCode, Intent data) {
+    return webChromeClientHostApi.resultHandler.handleResult(requestCode, resultCode, data);
   }
 }
