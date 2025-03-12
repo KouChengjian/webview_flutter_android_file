@@ -2,9 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-library webview_flutter_android;
-
-export 'src/android_navigation_delegate.dart';
 export 'src/android_webview_controller.dart';
 export 'src/android_webview_cookie_manager.dart';
 export 'src/android_webview_platform.dart';
